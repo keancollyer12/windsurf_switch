@@ -1,0 +1,125 @@
+# ============================================================
+# GitHub Actions Automated Build Workflow
+# Purpose: Automatically build Windows (exe) and macOS (app) releases
+# ============================================================
+
+name: Build Releases
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # --------------------------------------------------------
+  # Windows Build Job
+  # --------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build Windows EXE
+        run: |
+          pyinstaller --onefile --windowed --name "Windsurf-Account-Switcher_Windows" --icon=NONE windsurf_win.py
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windsurf-Windows-exe
+          path: dist/Windsurf-Account-Switcher_Windows.exe
+
+  # --------------------------------------------------------
+  # macOS Build Job
+  # --------------------------------------------------------
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build macOS APP
+        run: |
+          pyinstaller --onefile --windowed --name "Windsurf-Account-Switcher_Mac" windsurf_mac.py
+
+      - name: Create DMG installer
+        run: |
+          mkdir -p dmg_content
+          cp -r "dist/Windsurf-Account-Switcher_Mac.app" dmg_content/ 2>/dev/null || cp "dist/Windsurf-Account-Switcher_Mac" dmg_content/
+          hdiutil create -volname "Windsurf-Account-Switcher" -srcfolder dmg_content -ov -format UDZO "Windsurf-Account-Switcher_Mac.dmg"
+
+      - name: Upload macOS build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windsurf-Mac-dmg
+          path: |
+            Windsurf-Account-Switcher_Mac.dmg
+            dist/Windsurf-Account-Switcher_Mac
+
+  # --------------------------------------------------------
+  # Create GitHub Release
+  # --------------------------------------------------------
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display file structure
+        run: find artifacts -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/Windsurf-Windows-exe/*
+            artifacts/Windsurf-Mac-dmg/*
+          body: |
+            ## 🚀 Windsurf Account Switcher
+            
+            **Break through the Claude 4.5 model 30-minute wait limit!**
+            
+            ### 📦 Download Instructions
+            - **Windows users**: Download `Windsurf-Account-Switcher_Windows.exe`
+              - **macOS users**: Download `Windsurf-Account-Switcher_Mac.dmg` or `Windsurf-Account-Switcher_Mac`
+            
+            ### ⚠️ Before You Start
+            1. Manually log in to your account in Windsurf first
+            2. Fully close Windsurf
+            3. Run this tool to save the account
+            4. Repeat the steps above to save multiple accounts
+            5. When you need to switch, close Windsurf and use this tool to switch
+            
+            ### 📞 Contact the Author
+            - WeChat: 1837620622 (ChuanKang KK)
+            - Email: 2040168455@qq.com
+            - Xianyu/Bilibili: Universal Programmer
+            
+            ---
+            ⭐ If you find this useful, please give it a Star!
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
