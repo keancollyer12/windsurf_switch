@@ -225,7 +225,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(btn_frame, text="Settings", command=self.open_settings).pack(side=tk.RIGHT, padx=5)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Ready | Created By Elon Musk")
+        self.status_var = tk.StringVar(value="Ready | Created By CyberToxic7")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
     
