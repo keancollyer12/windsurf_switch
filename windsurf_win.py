@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 from datetime import datetime
 from pathlib import Path
 
@@ -37,7 +37,10 @@ CODEIUM_DIR = os.path.join(USERPROFILE, '.codeium', 'windsurf')
 
 # Profile storage directory (saved to the script's current directory)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILES_DIR = os.path.join(SCRIPT_DIR, 'windsurf_profiles')
+DEFAULT_PROFILES_DIR = os.path.join(SCRIPT_DIR, 'windsurf_profiles')
+
+# Settings file (stores user preferences like custom profiles directory)
+SETTINGS_FILE = os.path.join(os.environ.get('APPDATA', SCRIPT_DIR), 'windsurf-switcher', 'settings.json')
 
 
 class WindsurfAccountSwitcher:
@@ -48,7 +51,7 @@ class WindsurfAccountSwitcher:
         self.root.resizable(True, True)
         
         # Ensure profile directory exists
-        os.makedirs(PROFILES_DIR, exist_ok=True)
+        os.makedirs(self.profiles_dir, exist_ok=True)
         
         self.setup_ui()
         self.refresh_profiles()
@@ -93,6 +96,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(btn_frame, text="Switch Account", command=self.on_switch_click).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Delete Profile", command=self.delete_profile).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="📂 Open Directory", command=self.open_profiles_dir).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="⚙️ Settings", command=self.open_settings).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_all).pack(side=tk.RIGHT, padx=5)
         
         # Author watermark section
@@ -140,6 +144,82 @@ class WindsurfAccountSwitcher:
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
     
+    def load_profiles_dir(self):
+        """Load the profiles directory from settings, fallback to default."""
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                custom_dir = settings.get('profiles_dir', '')
+                if custom_dir and os.path.isdir(os.path.dirname(custom_dir)):
+                    return custom_dir
+        except Exception:
+            pass
+        return DEFAULT_PROFILES_DIR
+
+    def save_profiles_dir(self, new_dir):
+        """Save the chosen profiles directory to settings."""
+        try:
+            os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+            settings = {}
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            settings['profiles_dir'] = new_dir
+            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save settings: {e}")
+
+    def open_settings(self):
+        """Open the Settings window."""
+        settings_win = tk.Toplevel(self.root)
+        settings_win.title("Settings")
+        settings_win.geometry("480x160")
+        settings_win.resizable(False, False)
+        settings_win.grab_set()  # Make it modal
+
+        # Title label
+        ttk.Label(settings_win, text="Settings", font=('Microsoft YaHei', 12, 'bold')).pack(pady=(14, 8))
+
+        # Profiles directory row
+        dir_frame = ttk.LabelFrame(settings_win, text="Select directory to save profiles", padding=10)
+        dir_frame.pack(fill=tk.X, padx=14, pady=4)
+
+        self.settings_dir_var = tk.StringVar(value=self.profiles_dir)
+
+        dir_entry = ttk.Entry(dir_frame, textvariable=self.settings_dir_var, width=42)
+        dir_entry.pack(side=tk.LEFT, padx=(0, 6))
+
+        def browse_dir():
+            chosen = filedialog.askdirectory(
+                title="Select directory to save profiles",
+                initialdir=self.profiles_dir
+            )
+            if chosen:
+                self.settings_dir_var.set(chosen)
+
+        ttk.Button(dir_frame, text="Browse...", command=browse_dir).pack(side=tk.LEFT)
+
+        # Save / Cancel buttons
+        btn_row = ttk.Frame(settings_win, padding=(10, 6))
+        btn_row.pack()
+
+        def save_settings():
+            new_dir = self.settings_dir_var.get().strip()
+            if not new_dir:
+                messagebox.showwarning("Warning", "Please select a directory.", parent=settings_win)
+                return
+            os.makedirs(new_dir, exist_ok=True)
+            self.profiles_dir = new_dir
+            self.save_profiles_dir(new_dir)
+            self.refresh_profiles()
+            self.status_var.set(f"Profiles directory set to: {new_dir}")
+            settings_win.destroy()
+
+        ttk.Button(btn_row, text="Save", command=save_settings).pack(side=tk.LEFT, padx=6)
+        ttk.Button(btn_row, text="Cancel", command=settings_win.destroy).pack(side=tk.LEFT, padx=6)
+
     def get_current_account_info(self):
         """Read current account info from state.vscdb"""
         try:
@@ -176,11 +256,11 @@ class WindsurfAccountSwitcher:
         for item in self.profile_tree.get_children():
             self.profile_tree.delete(item)
         
-        if not os.path.exists(PROFILES_DIR):
+        if not os.path.exists(self.profiles_dir):
             return
         
-        for profile_name in os.listdir(PROFILES_DIR):
-            profile_path = os.path.join(PROFILES_DIR, profile_name)
+        for profile_name in os.listdir(self.profiles_dir):
+            profile_path = os.path.join(self.profiles_dir, profile_name)
             if os.path.isdir(profile_path):
                 meta_file = os.path.join(profile_path, 'profile_meta.json')
                 if os.path.exists(meta_file):
@@ -204,10 +284,10 @@ class WindsurfAccountSwitcher:
     def open_profiles_dir(self):
         """Open the profile storage directory"""
         # Ensure directory exists
-        os.makedirs(PROFILES_DIR, exist_ok=True)
+        os.makedirs(self.profiles_dir, exist_ok=True)
         # Open directory with Windows Explorer
-        os.startfile(PROFILES_DIR)
-        self.status_var.set(f"Opened directory: {PROFILES_DIR}")
+        os.startfile(self.profiles_dir)
+        self.status_var.set(f"Opened directory: {self.profiles_dir}")
     
     def is_windsurf_running(self):
         """Check if Windsurf is currently running"""
@@ -280,7 +360,7 @@ class WindsurfAccountSwitcher:
         # Remove invalid characters
         profile_name = "".join(c for c in profile_name if c.isalnum() or c in ('_', '-', '.'))
         
-        profile_path = os.path.join(PROFILES_DIR, profile_name)
+        profile_path = os.path.join(self.profiles_dir, profile_name)
         
         if os.path.exists(profile_path):
             if not messagebox.askyesno("Confirm", f"Profile '{profile_name}' already exists. Overwrite?"):
@@ -348,7 +428,7 @@ class WindsurfAccountSwitcher:
         # Note: Treeview values may be integers, convert to string
         profile_name = str(self.profile_tree.item(selected[0])['values'][0])
         target_email = str(self.profile_tree.item(selected[0])['values'][1])
-        profile_path = os.path.join(PROFILES_DIR, profile_name)
+        profile_path = os.path.join(self.profiles_dir, profile_name)
         
         # Debug info
         print(f"[DEBUG] Switch operation started")
@@ -506,7 +586,7 @@ class WindsurfAccountSwitcher:
             return
         
         try:
-            profile_path = os.path.join(PROFILES_DIR, profile_name)
+            profile_path = os.path.join(self.profiles_dir, profile_name)
             shutil.rmtree(profile_path)
             self.refresh_profiles()
             self.status_var.set(f"Profile deleted: {profile_name}")
@@ -527,3 +607,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
