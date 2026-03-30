@@ -40,7 +40,7 @@ CODEIUM_DIR = os.path.join(USERPROFILE, '.codeium', 'windsurf')
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PROFILES_DIR = os.path.join(APPDATA or SCRIPT_DIR, 'WindsurfSwitcher', 'windsurf_profiles')
 CONFIG_DIR = os.path.join(APPDATA or SCRIPT_DIR, 'WindsurfSwitcher')
-CONFIG_FILE = os.path.join(CONFIG_DIR, 'config4.json')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 
 
 def _pb_read_varint(buf, idx):
