@@ -58,12 +58,12 @@ jobs:
 
       - name: Build macOS APP
         run: |
-          pyinstaller --onefile --windowed --name "Windsurf-Account-Switcher_Mac" windsurf_mac.py
+          pyinstaller --onedir --windowed --name "Windsurf-Account-Switcher_Mac" windsurf_mac.py
 
       - name: Create DMG installer
         run: |
           mkdir -p dmg_content
-          cp -r "dist/Windsurf-Account-Switcher_Mac.app" dmg_content/ 2>/dev/null || cp "dist/Windsurf-Account-Switcher_Mac" dmg_content/
+          cp -r "dist/Windsurf-Account-Switcher_Mac.app" dmg_content/
           hdiutil create -volname "Windsurf-Account-Switcher" -srcfolder dmg_content -ov -format UDZO "Windsurf-Account-Switcher_Mac.dmg"
 
       - name: Upload macOS build artifact
@@ -72,7 +72,7 @@ jobs:
           name: Windsurf-Mac-dmg
           path: |
             Windsurf-Account-Switcher_Mac.dmg
-            dist/Windsurf-Account-Switcher_Mac
+            dist/Windsurf-Account-Switcher_Mac.app
 
   # --------------------------------------------------------
   # Create GitHub Release
