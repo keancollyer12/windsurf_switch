@@ -31,13 +31,13 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --onefile --windowed --name "Windsurf-Account-Switcher_Windows" --icon=NONE windsurf_win.py
+          pyinstaller --onefile --windowed --name "Windsurf-Switcher" --icon=NONE windsurf_win.py
 
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Windsurf-Windows-exe
-          path: dist/Windsurf-Account-Switcher_Windows.exe
+          path: dist/Windsurf-Switcher.exe
 
   # --------------------------------------------------------
   # macOS Build Job
@@ -58,21 +58,21 @@ jobs:
 
       - name: Build macOS APP
         run: |
-          pyinstaller --onedir --windowed --name "Windsurf-Account-Switcher_Mac" windsurf_mac.py
+          pyinstaller --onedir --windowed --name "Windsurf-Switcher_Mac" windsurf_mac.py
 
       - name: Create DMG installer
         run: |
           mkdir -p dmg_content
-          cp -r "dist/Windsurf-Account-Switcher_Mac.app" dmg_content/
-          hdiutil create -volname "Windsurf-Account-Switcher" -srcfolder dmg_content -ov -format UDZO "Windsurf-Account-Switcher_Mac.dmg"
+          cp -r "dist/Windsurf-Switcher_Mac.app" dmg_content/
+          hdiutil create -volname "Windsurf-Account-Switcher" -srcfolder dmg_content -ov -format UDZO "Windsurf-Switcher_Mac.dmg"
 
       - name: Upload macOS build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Windsurf-Mac-dmg
           path: |
-            Windsurf-Account-Switcher_Mac.dmg
-            dist/Windsurf-Account-Switcher_Mac.app
+            Windsurf-Switcher_Mac.dmg
+            dist/Windsurf-Switcher_Mac.app
 
   # --------------------------------------------------------
   # Create GitHub Release
@@ -104,8 +104,8 @@ jobs:
             **Break through the Claude 4.5 model 30-minute wait limit!**
             
             ### 📦 Download Instructions
-            - **Windows users**: Download `Windsurf-Account-Switcher_Windows.exe`
-              - **macOS users**: Download `Windsurf-Account-Switcher_Mac.dmg` or `Windsurf-Account-Switcher_Mac`
+            - **Windows users**: Download `Windsurf-Switcher.exe`
+              - **macOS users**: Download `Windsurf-Switcher_Mac.dmg` or `Windsurf-Switcher_Mac`
             
             ### ⚠️ Before You Start
             1. Manually log in to your account in Windsurf first
