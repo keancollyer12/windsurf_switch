@@ -1,5 +1,5 @@
 """
-Windsurf Account Quick Switcher (Mac Version)
+Windsurf Account Quick Switcher
 Features:
 1. Save current account as a Profile
 2. Switch to a saved Profile
@@ -127,8 +127,8 @@ class WindsurfAccountSwitcher:
             root: tkinter main window object
         """
         self.root = root
-        self.root.title("Windsurf Account Switcher (Mac) - Open Source & Free")
-        self.root.geometry("550x560")
+        self.root.title("Windsurf Account Switcher")
+        self.root.geometry("750x500")
         self.root.resizable(True, True)
 
         self.profiles_dir = self._load_profiles_dir()
@@ -247,7 +247,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(btn_frame, text="Settings", command=self.open_settings).pack(side=tk.RIGHT, padx=5)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Ready | Created By Elon Musk")
+        self.status_var = tk.StringVar(value="Ready | Created By CyberToxic7")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
     
@@ -793,7 +793,7 @@ class WindsurfAccountSwitcher:
 
         win.update_idletasks()
         w = 600
-        h = max(win.winfo_reqheight(), 140)
+        h = max(win.winfo_reqheight(), 120)
         root_x = self.root.winfo_rootx()
         root_y = self.root.winfo_rooty()
         root_w = self.root.winfo_width()
