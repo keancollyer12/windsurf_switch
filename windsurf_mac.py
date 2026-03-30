@@ -10,11 +10,12 @@ Features:
 import os
 import sys
 import json
+import base64
 import shutil
 import sqlite3
 import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 from datetime import datetime
 from pathlib import Path
 
@@ -42,9 +43,77 @@ NETWORK_STATE_FILE = os.path.join(WINDSURF_DATA, 'Network Persistent State')
 # Codeium config directory (Mac path)
 CODEIUM_DIR = os.path.join(HOME, '.codeium', 'windsurf')
 
-# Profile storage directory (saved to the script's current directory)
+# Profile storage directory (configurable; default stored under Application Support)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILES_DIR = os.path.join(SCRIPT_DIR, 'windsurf_profiles')
+CONFIG_DIR = os.path.join(HOME, 'Library', 'Application Support', 'WindsurfSwitcher')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
+DEFAULT_PROFILES_DIR = os.path.join(CONFIG_DIR, 'windsurf_profiles')
+
+
+def _pb_read_varint(buf, idx):
+    shift = 0
+    result = 0
+    while True:
+        if idx >= len(buf):
+            raise ValueError('Truncated varint')
+        b = buf[idx]
+        idx += 1
+        result |= (b & 0x7F) << shift
+        if not (b & 0x80):
+            return result, idx
+        shift += 7
+        if shift > 64:
+            raise ValueError('Varint too long')
+
+
+def _pb_extract_string_fields(buf, wanted_fields, max_depth=4, _depth=0):
+    found = {}
+    idx = 0
+    while idx < len(buf) and len(found) < len(wanted_fields):
+        try:
+            key, idx = _pb_read_varint(buf, idx)
+        except Exception:
+            break
+
+        field_number = key >> 3
+        wire_type = key & 0x07
+
+        if wire_type == 0:
+            try:
+                _, idx = _pb_read_varint(buf, idx)
+            except Exception:
+                break
+        elif wire_type == 1:
+            idx += 8
+        elif wire_type == 5:
+            idx += 4
+        elif wire_type == 2:
+            try:
+                length, idx = _pb_read_varint(buf, idx)
+            except Exception:
+                break
+            if length < 0 or idx + length > len(buf):
+                break
+            payload = buf[idx:idx + length]
+            idx += length
+
+            if field_number in wanted_fields and field_number not in found:
+                try:
+                    s = payload.decode('utf-8')
+                    if s:
+                        found[field_number] = s
+                except Exception:
+                    pass
+
+            if _depth < max_depth and payload:
+                nested = _pb_extract_string_fields(payload, wanted_fields, max_depth=max_depth, _depth=_depth + 1)
+                for k, v in nested.items():
+                    if k not in found and v:
+                        found[k] = v
+        else:
+            break
+
+    return found
 
 
 # ============================================================
@@ -61,14 +130,73 @@ class WindsurfAccountSwitcher:
         self.root.title("Windsurf Account Switcher (Mac) - Open Source & Free")
         self.root.geometry("550x560")
         self.root.resizable(True, True)
-        
-        # Ensure profile directory exists
-        os.makedirs(PROFILES_DIR, exist_ok=True)
+
+        self.profiles_dir = self._load_profiles_dir()
+        os.makedirs(self.profiles_dir, exist_ok=True)
         
         # Initialize UI and data
         self.setup_ui()
         self.refresh_profiles()
         self.show_current_account()
+
+    def _load_profiles_dir(self):
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                configured = data.get('profiles_dir')
+                if configured and os.path.isdir(configured):
+                    return configured
+                if configured and not os.path.exists(configured):
+                    return configured
+        except Exception:
+            pass
+        return DEFAULT_PROFILES_DIR
+
+    def _save_profiles_dir(self, path):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'profiles_dir': path}, f, ensure_ascii=False, indent=2)
+
+    def _has_custom_profiles_dir(self):
+        try:
+            if not os.path.exists(CONFIG_FILE):
+                return False
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            configured = (data.get('profiles_dir') or '').strip()
+            if not configured:
+                return False
+            if os.path.normcase(os.path.abspath(configured)) == os.path.normcase(os.path.abspath(DEFAULT_PROFILES_DIR)):
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _require_custom_profiles_dir(self):
+        if not self._has_custom_profiles_dir():
+            messagebox.showerror("Error", "Please add a directory via settings first.")
+            return False
+        return True
+
+    def _get_codeium_auth_name(self):
+        try:
+            if not os.path.exists(STATE_DB):
+                return None
+
+            conn = sqlite3.connect(STATE_DB)
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM ItemTable WHERE key='codeium.windsurf-windsurf_auth'")
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and isinstance(row[0], str):
+                name = row[0].strip()
+                return name if name else None
+            return None
+        except Exception as e:
+            print(f"Failed to read Codeium auth name: {e}")
+            return None
     
     # --------------------------------------------------------
     # UI Setup
@@ -116,49 +244,10 @@ class WindsurfAccountSwitcher:
         ttk.Button(btn_frame, text="Delete Profile", command=self.delete_profile).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="📂 Open Directory", command=self.open_profiles_dir).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_all).pack(side=tk.RIGHT, padx=5)
-        
-        # Author watermark section
-        author_frame = ttk.LabelFrame(self.root, text="✨ Author Info ✨", padding=8)
-        author_frame.pack(fill=tk.X, padx=10, pady=8)
-        
-        # Author name
-        author_name = ttk.Label(
-            author_frame, 
-            text="👨‍💻 ChuanKang KK (Universal Programmer)",
-            foreground='#e91e63',
-            font=('PingFang SC', 12, 'bold')
-        )
-        author_name.pack(anchor=tk.CENTER, pady=(0, 5))
-        
-        # WeChat contact
-        wechat_info = ttk.Label(
-            author_frame,
-            text="📱 WeChat: 1837620622    📧 Email: 2040168455@qq.com",
-            foreground='#1a73e8',
-            font=('PingFang SC', 10)
-        )
-        wechat_info.pack(anchor=tk.CENTER, pady=2)
-        
-        # Platform info
-        platform_info = ttk.Label(
-            author_frame,
-            text="🎬 Xianyu/Bilibili: Universal Programmer    ⭐ GitHub: github.com/1837620622",
-            foreground='#666666',
-            font=('PingFang SC', 10)
-        )
-        platform_info.pack(anchor=tk.CENTER, pady=2)
-        
-        # Star prompt
-        star_info = ttk.Label(
-            author_frame,
-            text="🌟 Open source & free — please give us a Star!",
-            foreground='#ff9800',
-            font=('PingFang SC', 10, 'bold')
-        )
-        star_info.pack(anchor=tk.CENTER, pady=(5, 0))
+        ttk.Button(btn_frame, text="Settings", command=self.open_settings).pack(side=tk.RIGHT, padx=5)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Ready | Open source & free — give us a Star!")
+        self.status_var = tk.StringVar(value="Ready | Created By Elon Musk")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
     
@@ -183,7 +272,32 @@ class WindsurfAccountSwitcher:
             
             if row:
                 data = json.loads(row[0])
-                return data.get('name', 'Unknown'), data.get('email', 'Unknown')
+                name = data.get('name')
+                email = data.get('email')
+                if name or email:
+                    return name or 'Unknown', email or 'Unknown'
+
+                proto_b64 = data.get('userStatusProtoBinaryBase64')
+                if proto_b64:
+                    try:
+                        proto_b64 = proto_b64.strip()
+                        missing_padding = (-len(proto_b64)) % 4
+                        if missing_padding:
+                            proto_b64 += '=' * missing_padding
+                        raw = base64.urlsafe_b64decode(proto_b64)
+                        extracted = _pb_extract_string_fields(raw, wanted_fields={3, 7})
+                        pb_name = extracted.get(3)
+                        pb_email = extracted.get(7)
+                        if pb_name or pb_email:
+                            return pb_name or 'Unknown', pb_email or 'Unknown'
+                    except Exception as e:
+                        print(f"Failed to decode protobuf account info: {e}")
+
+                codeium_name = self._get_codeium_auth_name()
+                if codeium_name:
+                    return codeium_name, 'Unknown'
+
+                return 'Unknown', 'Unknown'
             return None, None
         except Exception as e:
             print(f"Failed to read account info: {e}")
@@ -208,12 +322,12 @@ class WindsurfAccountSwitcher:
         for item in self.profile_tree.get_children():
             self.profile_tree.delete(item)
         
-        if not os.path.exists(PROFILES_DIR):
+        if not os.path.exists(self.profiles_dir):
             return
         
         # Iterate through profile directory
-        for profile_name in os.listdir(PROFILES_DIR):
-            profile_path = os.path.join(PROFILES_DIR, profile_name)
+        for profile_name in os.listdir(self.profiles_dir):
+            profile_path = os.path.join(self.profiles_dir, profile_name)
             if os.path.isdir(profile_path):
                 meta_file = os.path.join(profile_path, 'profile_meta.json')
                 if os.path.exists(meta_file):
@@ -236,11 +350,13 @@ class WindsurfAccountSwitcher:
     
     def open_profiles_dir(self):
         """Open the profile storage directory"""
+        if not self._require_custom_profiles_dir():
+            return
         # Ensure directory exists
-        os.makedirs(PROFILES_DIR, exist_ok=True)
+        os.makedirs(self.profiles_dir, exist_ok=True)
         # Mac uses the open command to open directories
-        subprocess.run(['open', PROFILES_DIR])
-        self.status_var.set(f"Opened directory: {PROFILES_DIR}")
+        subprocess.run(['open', self.profiles_dir])
+        self.status_var.set(f"Opened directory: {self.profiles_dir}")
     
     # --------------------------------------------------------
     # Process Detection (Mac Version)
@@ -275,7 +391,7 @@ class WindsurfAccountSwitcher:
         try:
             subprocess.run(['pkill', '-9', '-f', 'Windsurf'], capture_output=True)
             import time
-        time.sleep(1)  # Wait for process to fully exit
+            time.sleep(1)  # Wait for process to fully exit
             return not self.is_windsurf_running()
         except:
             return False
@@ -310,6 +426,8 @@ class WindsurfAccountSwitcher:
     # --------------------------------------------------------
     def save_current_profile(self):
         """Save the current account as a Profile"""
+        if not self._require_custom_profiles_dir():
+            return
         # Check if Windsurf is running
         if self.is_windsurf_running():
             result = messagebox.askyesno(
@@ -342,7 +460,7 @@ class WindsurfAccountSwitcher:
         # Remove invalid characters, keep only alphanumeric and select symbols
         profile_name = "".join(c for c in profile_name if c.isalnum() or c in ('_', '-', '.'))
         
-        profile_path = os.path.join(PROFILES_DIR, profile_name)
+        profile_path = os.path.join(self.profiles_dir, profile_name)
         
         # Check if a profile with the same name already exists
         if os.path.exists(profile_path):
@@ -420,7 +538,17 @@ class WindsurfAccountSwitcher:
         # Get selected profile info
         profile_name = str(self.profile_tree.item(selected[0])['values'][0])
         target_email = str(self.profile_tree.item(selected[0])['values'][1])
-        profile_path = os.path.join(PROFILES_DIR, profile_name)
+        profile_path = os.path.join(self.profiles_dir, profile_name)
+
+        target_name = None
+        meta_file = os.path.join(profile_path, 'profile_meta.json')
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                target_name = meta.get('name')
+            except Exception:
+                target_name = None
         
         print(f"[DEBUG] Switch operation started")
         print(f"[DEBUG] profile_name: {profile_name}")
@@ -432,20 +560,28 @@ class WindsurfAccountSwitcher:
             return
         
         # Get current account info
-        _, current_email = self.get_current_account_info()
+        current_name, current_email = self.get_current_account_info()
+
+        email_available = bool(current_email) and current_email != 'Unknown'
+        target_email_available = bool(target_email) and target_email != 'Unknown'
         
         # Check if already on the target account
-        if current_email == target_email:
+        if email_available and target_email_available and current_email == target_email:
             messagebox.showinfo("Info", f"Already using account '{target_email}'")
             return
+
+        if (not email_available or not target_email_available) and target_name:
+            if current_name and current_name != 'Unknown' and current_name == target_name:
+                messagebox.showinfo("Info", f"Already using account '{target_name}'")
+                return
         
         # Check if Windsurf is running
         if self.is_windsurf_running():
             result = messagebox.askyesno(
             "Warning",
             f"Windsurf is currently running!\n\n"
-            f"Current account: {current_email}\n"
-            f"Target account: {target_email}\n\n"
+            f"Current account: {current_email if email_available else (current_name or 'Unknown')}\n"
+            f"Target account: {target_email if target_email_available else (target_name or 'Unknown')}\n\n"
             f"You need to close Windsurf before switching accounts.\n\n"
             f"Do you want to force-close Windsurf and continue?"
             )
@@ -459,7 +595,7 @@ class WindsurfAccountSwitcher:
                 return
         else:
             # Windsurf is not running, confirm switch
-            if not messagebox.askyesno("Confirm Switch", f"Current account: {current_email}\nTarget account: {target_email}\n\nAre you sure you want to switch?"):
+            if not messagebox.askyesno("Confirm Switch", f"Current account: {current_email if email_available else (current_name or 'Unknown')}\nTarget account: {target_email if target_email_available else (target_name or 'Unknown')}\n\nAre you sure you want to switch?"):
                 return
         
         errors = []
@@ -549,12 +685,20 @@ class WindsurfAccountSwitcher:
         self.root.update()
         
         # Verify switch result
-        _, new_email = self.get_current_account_info()
+        new_name, new_email = self.get_current_account_info()
         print(f"[DEBUG] Account after switch: {new_email}")
-        
-        if new_email == target_email:
+
+        new_email_available = bool(new_email) and new_email != 'Unknown'
+        if target_email_available and new_email_available and new_email == target_email:
             self.status_var.set(f"[OK] Switched successfully: {profile_name}")
             msg = f"Switch successful!\n\nCurrent account: {target_email}\n\nCopied successfully: {', '.join(success_items)}"
+            if errors:
+                msg += f"\n\nSome files failed to copy (may not affect functionality):\n" + "\n".join(errors)
+            msg += "\n\nPlease launch Windsurf to verify."
+            messagebox.showinfo("Switch Successful", msg)
+        elif (not target_email_available or not new_email_available) and target_name and new_name and new_name != 'Unknown' and new_name == target_name:
+            self.status_var.set(f"[OK] Switched successfully: {profile_name}")
+            msg = f"Switch successful!\n\nCurrent account: {target_name}\n\nCopied successfully: {', '.join(success_items)}"
             if errors:
                 msg += f"\n\nSome files failed to copy (may not affect functionality):\n" + "\n".join(errors)
             msg += "\n\nPlease launch Windsurf to verify."
@@ -584,12 +728,79 @@ class WindsurfAccountSwitcher:
             return
         
         try:
-            profile_path = os.path.join(PROFILES_DIR, profile_name)
+            profile_path = os.path.join(self.profiles_dir, profile_name)
             shutil.rmtree(profile_path)
             self.refresh_profiles()
             self.status_var.set(f"Profile deleted: {profile_name}")
         except Exception as e:
             messagebox.showerror("Error", f"Delete failed: {e}")
+
+    def open_settings(self):
+        win = tk.Toplevel(self.root)
+        win.title("Settings")
+        win.resizable(False, False)
+
+        win.transient(self.root)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+
+        container = ttk.Frame(win, padding=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Select directory to save profiles").grid(row=0, column=0, columnspan=3, sticky=tk.W)
+
+        initial_dir_value = self.profiles_dir if self._has_custom_profiles_dir() else ""
+        dir_var = tk.StringVar(value=initial_dir_value)
+        ttk.Entry(container, textvariable=dir_var, width=52).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+
+        def browse():
+            win.attributes('-topmost', True)
+            current_value = dir_var.get().strip()
+            default_documents = os.path.join(HOME, 'Documents')
+            initialdir = current_value if current_value else (default_documents if os.path.isdir(default_documents) else HOME)
+            chosen = filedialog.askdirectory(parent=win, initialdir=initialdir)
+            win.attributes('-topmost', False)
+            win.lift()
+            win.focus_force()
+            if chosen:
+                dir_var.set(chosen)
+
+        def save():
+            new_dir = dir_var.get().strip()
+            if not new_dir:
+                messagebox.showwarning("Settings", "Please select a directory.")
+                return
+            try:
+                os.makedirs(new_dir, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("Settings", f"Unable to create directory:\n{e}")
+                return
+
+            self._save_profiles_dir(new_dir)
+            self.profiles_dir = new_dir
+            os.makedirs(self.profiles_dir, exist_ok=True)
+            self.refresh_profiles()
+            self.status_var.set(f"Profiles directory set: {new_dir}")
+            win.destroy()
+
+        ttk.Button(container, text="Select...", command=browse).grid(row=1, column=2, sticky=tk.W, padx=(8, 0), pady=(6, 0))
+
+        btns = ttk.Frame(container)
+        btns.grid(row=2, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
+        ttk.Button(btns, text="Save", command=save).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.RIGHT)
+
+        win.update_idletasks()
+        w = 600
+        h = max(win.winfo_reqheight(), 140)
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        root_w = self.root.winfo_width()
+        root_h = self.root.winfo_height()
+        x = root_x + max((root_w - w) // 2, 0)
+        y = root_y + max((root_h - h) // 2, 0)
+        win.geometry(f"{w}x{h}+{x}+{y}")
 
 
 # ============================================================
