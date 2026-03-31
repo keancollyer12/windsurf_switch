@@ -234,6 +234,9 @@ class WindsurfAccountSwitcher:
         
         self.profile_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Configure tag for current account highlighting
+        self.profile_tree.tag_configure('current', foreground='red')
         
         # Button area
         btn_frame = ttk.Frame(self.root, padding=10)
@@ -325,6 +328,9 @@ class WindsurfAccountSwitcher:
         if not os.path.exists(self.profiles_dir):
             return
         
+        # Get current account info for highlighting
+        _, current_email = self.get_current_account_info()
+        
         # Iterate through profile directory
         for profile_name in os.listdir(self.profiles_dir):
             profile_path = os.path.join(self.profiles_dir, profile_name)
@@ -334,13 +340,12 @@ class WindsurfAccountSwitcher:
                     try:
                         with open(meta_file, 'r', encoding='utf-8') as f:
                             meta = json.load(f)
-                        self.profile_tree.insert('', tk.END, values=(
-                            profile_name,
-                            meta.get('email', 'Unknown'),
-                            meta.get('saved_at', 'Unknown')
-                        ))
+                        email = meta.get('email', 'Unknown')
+                        saved_at = meta.get('saved_at', 'Unknown')
+                        tags = ('current',) if (current_email and current_email != 'Unknown' and email == current_email) else ()
+                        self.profile_tree.insert('', tk.END, values=(profile_name, email, saved_at), tags=tags)
                     except:
-                        self.profile_tree.insert('', tk.END, values=(profile_name, 'Read failed', ''))
+                        self.profile_tree.insert('', tk.END, values=(profile_name, 'Read failed', ''), tags=())
     
     def refresh_all(self):
         """Refresh all information (current account and profile list)"""
