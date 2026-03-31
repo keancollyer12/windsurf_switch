@@ -214,7 +214,7 @@ class WindsurfAccountSwitcher:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Configure tag for current account highlighting
-        self.profile_tree.tag_configure('current', foreground='red')
+        self.profile_tree.tag_configure('current', foreground='blue')
         
         # Button area
         btn_frame = ttk.Frame(self.root, padding=10)
