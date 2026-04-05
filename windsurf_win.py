@@ -116,12 +116,90 @@ class WindsurfAccountSwitcher:
         self.root.geometry("750x500")
         self.root.resizable(True, True)
 
+        self.profile_name_method = 'username'
         self.profiles_dir = self._load_profiles_dir()
         os.makedirs(self.profiles_dir, exist_ok=True)
          
         self.setup_ui()
         self.refresh_profiles()
         self.show_current_account()
+
+    def _format_display_name(self, name: str) -> str:
+        if not name:
+            return name
+        parts = [p for p in name.split(' ') if p]
+        return ' '.join((p[:1].upper() + p[1:]) if p else p for p in parts)
+
+    def _profile_sort_key(self, profile_name: str):
+        try:
+            if not profile_name:
+                return (1, '', '')
+            left, sep, rest = profile_name.partition('.')
+            if sep and left.isdigit():
+                return (0, int(left), rest.lower())
+            return (1, profile_name.lower(), '')
+        except Exception:
+            return (1, str(profile_name).lower(), '')
+
+    def _copy_to_clipboard(self, text: str):
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text or '')
+            self.root.update()
+        except Exception:
+            pass
+
+    def _prompt_profile_name(self, initialvalue: str):
+        win = tk.Toplevel(self.root)
+        win.title("Save Profile")
+        win.resizable(False, False)
+
+        win.transient(self.root)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+
+        container = ttk.Frame(win, padding=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Enter a profile name:").grid(row=0, column=0, columnspan=2, sticky=tk.W)
+
+        val = tk.StringVar(value=initialvalue or '')
+        entry = ttk.Entry(container, textvariable=val, width=46)
+        entry.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        entry.focus_set()
+
+        result = {'value': None}
+
+        def ok():
+            result['value'] = val.get()
+            win.destroy()
+
+        def cancel():
+            result['value'] = None
+            win.destroy()
+
+        btns = ttk.Frame(container)
+        btns.grid(row=2, column=0, columnspan=2, sticky=tk.E, pady=(12, 0))
+        ttk.Button(btns, text="OK", command=ok).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=cancel).pack(side=tk.RIGHT)
+
+        win.bind('<Return>', lambda _e: ok())
+        win.bind('<Escape>', lambda _e: cancel())
+
+        win.update_idletasks()
+        w = 300
+        h = max(win.winfo_reqheight(), 100)
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        root_w = self.root.winfo_width()
+        root_h = self.root.winfo_height()
+        x = root_x + max((root_w - w) // 2, 0)
+        y = root_y + max((root_h - h) // 2, 0)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+        win.wait_window()
+        return result['value']
 
     def _has_custom_profiles_dir(self):
         try:
@@ -168,6 +246,9 @@ class WindsurfAccountSwitcher:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                method = (data.get('profile_name_method') or '').strip().lower()
+                if method in ('username', 'email'):
+                    self.profile_name_method = method
                 configured = data.get('profiles_dir')
                 if configured and os.path.isdir(configured):
                     return configured
@@ -177,10 +258,13 @@ class WindsurfAccountSwitcher:
             pass
         return DEFAULT_PROFILES_DIR
 
-    def _save_profiles_dir(self, path):
+    def _save_profiles_dir(self, path, profile_name_method=None):
         os.makedirs(CONFIG_DIR, exist_ok=True)
+        method = (profile_name_method or self.profile_name_method or 'username').strip().lower()
+        if method not in ('username', 'email'):
+            method = 'username'
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'profiles_dir': path}, f, ensure_ascii=False, indent=2)
+            json.dump({'profiles_dir': path, 'profile_name_method': method}, f, ensure_ascii=False, indent=2)
 
     def setup_ui(self):
         # Current account info
@@ -192,6 +276,18 @@ class WindsurfAccountSwitcher:
         
         self.current_email_label = ttk.Label(info_frame, text="", foreground='gray')
         self.current_email_label.pack(anchor=tk.W)
+
+        self.current_account_menu = tk.Menu(self.root, tearoff=0)
+        self.current_account_menu.add_command(label="Copy user name", command=self._copy_current_user_name)
+        self.current_account_menu.add_command(label="Copy email", command=self._copy_current_email)
+
+        def show_current_menu(event):
+            if self.current_account_label.cget('text') == "Not logged in or unable to read":
+                return
+            self.current_account_menu.tk_popup(event.x_root, event.y_root)
+
+        self.current_account_label.bind('<Button-3>', show_current_menu)
+        self.current_email_label.bind('<Button-3>', show_current_menu)
         
         # Profile list
         list_frame = ttk.LabelFrame(self.root, text="Saved Account Profiles", padding=10)
@@ -212,6 +308,21 @@ class WindsurfAccountSwitcher:
         
         self.profile_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.profile_menu = tk.Menu(self.root, tearoff=0)
+        self.profile_menu.add_command(label="Copy profile name", command=self._copy_selected_profile_name)
+        self.profile_menu.add_command(label="Copy email", command=self._copy_selected_profile_email)
+        self.profile_menu.add_command(label="Copy saved at time", command=self._copy_selected_profile_saved_at)
+
+        def show_profile_menu(event):
+            row_id = self.profile_tree.identify_row(event.y)
+            if row_id:
+                self.profile_tree.selection_set(row_id)
+                self.profile_tree.focus(row_id)
+            if self.profile_tree.selection():
+                self.profile_menu.tk_popup(event.x_root, event.y_root)
+
+        self.profile_tree.bind('<Button-3>', show_profile_menu)
         
         # Configure tag for current account highlighting
         self.profile_tree.tag_configure('current', foreground='blue')
@@ -223,7 +334,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(btn_frame, text="Save Current Account", command=self.save_current_profile).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Switch Account", command=self.on_switch_click).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Delete Profile", command=self.delete_profile).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="📂 Open Directory", command=self.open_profiles_dir).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Open Directory", command=self.open_profiles_dir).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_all).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Settings", command=self.open_settings).pack(side=tk.RIGHT, padx=5)
         
@@ -281,25 +392,65 @@ class WindsurfAccountSwitcher:
         """Display current account info"""
         name, email = self.get_current_account_info()
         if name:
-            self.current_account_label.config(text=f"👤 {name}")
+            display_name = self._format_display_name(name)
+            self.current_account_label.config(text=f"👤 {display_name}")
             self.current_email_label.config(text=f"📧 {email}")
         else:
             self.current_account_label.config(text="Not logged in or unable to read")
             self.current_email_label.config(text="")
-    
+
+    def _copy_current_user_name(self):
+        name, _ = self.get_current_account_info()
+        if not name:
+            return
+        self._copy_to_clipboard(self._format_display_name(name))
+
+    def _copy_current_email(self):
+        _, email = self.get_current_account_info()
+        if not email:
+            return
+        self._copy_to_clipboard(email)
+
+    def _get_selected_profile_values(self):
+        selected = self.profile_tree.selection()
+        if not selected:
+            return None
+        values = self.profile_tree.item(selected[0]).get('values')
+        if not values or len(values) < 3:
+            return None
+        return str(values[0]), str(values[1]), str(values[2])
+
+    def _copy_selected_profile_name(self):
+        vals = self._get_selected_profile_values()
+        if not vals:
+            return
+        self._copy_to_clipboard(vals[0])
+
+    def _copy_selected_profile_email(self):
+        vals = self._get_selected_profile_values()
+        if not vals:
+            return
+        self._copy_to_clipboard(vals[1])
+
+    def _copy_selected_profile_saved_at(self):
+        vals = self._get_selected_profile_values()
+        if not vals:
+            return
+        self._copy_to_clipboard(vals[2])
+
     def refresh_profiles(self):
         """Refresh the profile list"""
         # Clear the list
         for item in self.profile_tree.get_children():
             self.profile_tree.delete(item)
-        
+
         if not os.path.exists(self.profiles_dir):
             return
-        
+
         # Get current account info for highlighting
         _, current_email = self.get_current_account_info()
-        
-        for profile_name in os.listdir(self.profiles_dir):
+
+        for profile_name in sorted(os.listdir(self.profiles_dir), key=self._profile_sort_key):
             profile_path = os.path.join(self.profiles_dir, profile_name)
             if os.path.isdir(profile_path):
                 meta_file = os.path.join(profile_path, 'profile_meta.json')
@@ -313,13 +464,13 @@ class WindsurfAccountSwitcher:
                         self.profile_tree.insert('', tk.END, values=(profile_name, email, saved_at), tags=tags)
                     except:
                         self.profile_tree.insert('', tk.END, values=(profile_name, 'Read failed', ''), tags=())
-    
+
     def refresh_all(self):
         """Refresh all information"""
         self.show_current_account()
         self.refresh_profiles()
         self.status_var.set("Refreshed")
-    
+
     def open_profiles_dir(self):
         """Open the profile storage directory"""
         if not self._require_custom_profiles_dir():
@@ -329,7 +480,7 @@ class WindsurfAccountSwitcher:
         # Open directory with Windows Explorer
         os.startfile(self.profiles_dir)
         self.status_var.set(f"Opened directory: {self.profiles_dir}")
-    
+
     def is_windsurf_running(self):
         """Check if Windsurf is currently running"""
         try:
@@ -340,12 +491,12 @@ class WindsurfAccountSwitcher:
             return 'Windsurf.exe' in result.stdout
         except:
             return False
-    
+
     def verify_switch(self, expected_email):
         """Verify whether the switch was successful"""
         _, current_email = self.get_current_account_info()
         return current_email == expected_email
-    
+
     def on_switch_click(self):
         """Switch button click event"""
         try:
@@ -356,7 +507,7 @@ class WindsurfAccountSwitcher:
             messagebox.showerror("Error", f"An exception occurred during switching:\n{e}")
             import traceback
             traceback.print_exc()
-    
+
     def force_quit_windsurf(self):
         """Force quit the Windsurf process"""
         try:
@@ -366,7 +517,7 @@ class WindsurfAccountSwitcher:
             return not self.is_windsurf_running()
         except:
             return False
-    
+
     def save_current_profile(self):
         """Save the current account as a Profile"""
         if not self._require_custom_profiles_dir():
@@ -387,29 +538,33 @@ class WindsurfAccountSwitcher:
                     return
             else:
                 return
-        
+
         name, email = self.get_current_account_info()
         if not name:
             messagebox.showerror("Error", "Unable to read current account info. Please make sure you are logged in to Windsurf.")
             return
-        
-        # Use email prefix as default name
-        default_name = email.split('@')[0] if email else "profile"
-        profile_name = simpledialog.askstring("Save Profile", "Enter a profile name:", initialvalue=default_name)
-        
+
+        method = (self.profile_name_method or 'username').strip().lower()
+        if method == 'email':
+            default_name = email.split('@')[0] if email else "profile"
+        else:
+            default_name = ''.join(self._format_display_name(name).split()) if (name and name != 'Unknown') else (email.split('@')[0] if email else "profile")
+
+        profile_name = self._prompt_profile_name(default_name)
+
         if not profile_name:
             return
-        
+
         # Remove invalid characters
         profile_name = "".join(c for c in profile_name if c.isalnum() or c in ('_', '-', '.'))
-        
+
         profile_path = os.path.join(self.profiles_dir, profile_name)
-        
+
         if os.path.exists(profile_path):
             if not messagebox.askyesno("Confirm", f"Profile '{profile_name}' already exists. Overwrite?"):
                 return
             shutil.rmtree(profile_path)
-        
+
         try:
             os.makedirs(profile_path)
             
@@ -681,6 +836,13 @@ class WindsurfAccountSwitcher:
         entry = ttk.Entry(container, textvariable=dir_var, width=52)
         entry.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
 
+        ttk.Label(container, text="Method of profile name extraction").grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        method_var = tk.StringVar(value=(self.profile_name_method or 'username'))
+        rb_frame = ttk.Frame(container)
+        rb_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(6, 0))
+        ttk.Radiobutton(rb_frame, text="By user name", variable=method_var, value='username').pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Radiobutton(rb_frame, text="By email local-part", variable=method_var, value='email').pack(side=tk.LEFT)
+
         def browse():
             win.attributes('-topmost', True)
             current_value = dir_var.get().strip()
@@ -704,7 +866,10 @@ class WindsurfAccountSwitcher:
                 messagebox.showerror("Settings", f"Unable to create directory:\n{e}")
                 return
 
-            self._save_profiles_dir(new_dir)
+            self.profile_name_method = (method_var.get() or 'username').strip().lower()
+            if self.profile_name_method not in ('username', 'email'):
+                self.profile_name_method = 'username'
+            self._save_profiles_dir(new_dir, profile_name_method=self.profile_name_method)
             self.profiles_dir = new_dir
             self.refresh_profiles()
             self.status_var.set(f"Profiles directory set: {new_dir}")
@@ -713,7 +878,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(container, text="Select...", command=browse).grid(row=1, column=2, sticky=tk.W, padx=(8, 0), pady=(6, 0))
 
         btns = ttk.Frame(container)
-        btns.grid(row=2, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
+        btns.grid(row=4, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
         ttk.Button(btns, text="Save", command=save).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.RIGHT)
 
