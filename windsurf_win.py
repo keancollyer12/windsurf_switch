@@ -113,7 +113,7 @@ class WindsurfAccountSwitcher:
     def __init__(self, root):
         self.root = root
         self.root.title("Windsurf Account Switcher")
-        self.root.geometry("750x500")
+        self.root.geometry("750x550")
         self.root.resizable(True, True)
 
         self.profile_name_method = 'username'

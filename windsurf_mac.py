@@ -128,7 +128,7 @@ class WindsurfAccountSwitcher:
         """
         self.root = root
         self.root.title("Windsurf Account Switcher")
-        self.root.geometry("750x500")
+        self.root.geometry("750x550")
         self.root.resizable(True, True)
 
         self.profile_name_method = 'username'
@@ -962,7 +962,7 @@ class WindsurfAccountSwitcher:
         ttk.Button(btns, text="Cancel", command=win.destroy).pack(side=tk.RIGHT)
 
         win.update_idletasks()
-        w = 600
+        w = 440
         h = max(win.winfo_reqheight(), 120)
         root_x = self.root.winfo_rootx()
         root_y = self.root.winfo_rooty()
